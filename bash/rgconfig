@@ -1,0 +1,248 @@
+#!/bin/bash
+
+sect="S1"
+rid="RGS1"
+prov=1
+tmpmem="/tmp/.rgconftemp"
+sroot="/media/disk/"
+rghostv="rtms.servehttp.com/collector"
+
+touch $tmpmem
+
+. $tmpmem
+
+
+echo "Raingauge Configuration script"
+echo "Raingauge Server"
+echo " [1] rtms.servehttp.com/collector"
+echo " [2] rtmsgenting.servehttp.com/collector"
+echo -n "Select Raingauge Server [default: $rghostv ]: "
+read -e RGHOST
+echo -n "Enter Rain Gauge Section [default: $sect ]: "
+read -e RGSECT
+echo -n "Enter Rain Gauge ID [default: $rid ]: "
+read -e RGID
+echo "GPRS Provider"
+echo " [1] celcom3g"
+echo " [2] digi"
+echo " [3] maxis"
+echo " [4] celcom2g"
+echo -n "Select GPRS Provider [default: $prov ]: "
+read -e PROVIDER
+echo -n "Mounted SD Card root [ default: $sroot ]: "
+read -e SDROOT
+
+if [ ${#RGSECT} -eq 0 ]; then
+	RGSECT=$sect
+fi
+
+if [ ${#RGID} -eq 0 ]; then
+	RGID=$rid
+fi
+
+if [ ${#SDROOT} -eq 0 ]; then
+	SDROOT=$sroot
+fi
+
+if [ ${#PROVIDER} -eq 0 ]; then
+	PROVIDER=$prov
+fi
+
+case $PROVIDER in
+	1) prov=1 ;;
+	2) prov=2 ;;
+	3) prov=3 ;;
+	4) prov=4 ;;
+	*) prov=$prov ;;
+esac
+
+sroot=$SDROOT
+sect=$RGSECT
+rid=$RGID
+RGIDLow=$(echo $rid | tr "[:upper:]" "[:lower:]")
+pptpuser="raingauge-$RGIDLow"
+
+case $RGHOST in
+	1) rghostv="rtms.servehttp.com/collector" ;;
+	2) rghostv="rtmsgenting.servehttp.com/collector" ;;
+	*) rghostv=$rghostv ;;
+esac
+
+RGIDS="$sect/$rid/RAINGAUGE"
+rgdatafile=$SDROOT"etc/raingauge/rgdata.conf"
+gprsfile=$SDROOT"etc/raingauge/gprs.conf"
+chapsecfile=$SDROOT"etc/ppp/chap-secrets"
+peerfile=$SDROOT"etc/ppp/peers/pptp-persiasys"
+
+provname=""
+ISCELC=""
+ISDIGI=""
+ISMAXIS=""
+ISCELC2=""
+
+case $prov in
+	1) provname="Celcom3g"
+	ISCELC=""
+	ISDIGI="#"
+	ISMAXIS="#"
+	ISCELC2="#"
+	;;
+	2) provname="Digi"
+	ISCELC="#"
+	ISDIGI=""
+	ISMAXIS="#"
+	ISCELC2="#"
+	;;
+	3) provname="Maxis"
+	ISCELC="#"
+	ISDIGI="#"
+	ISMAXIS=""
+	ISCELC2="#"
+	;;
+	4) provname="Celcom2g"
+	ISCELC="#"
+	ISDIGI="#"
+	ISMAXIS="#"
+	ISCELC2=""
+	;;
+esac
+
+writetempconf() {
+cat > $tmpmem << EOF
+sect="$sect"
+rid="$rid"
+prov=$prov
+sroot="$sroot"
+rghostv="$rghostv"
+EOF
+}
+
+
+makergdata() {
+	echo "Writing $rgdatafile"
+
+cat > $rgdatafile << EOF
+# -------------------------
+# rain gauge configuration file
+# -------------------------
+
+# rain gauge server host address
+#rghost="www.persiasys.com/rgdata"
+rghost="$rghostv"
+
+# sender id or device id
+#sender="P1/RGP1/RAINGAUGE"
+#sender="CSB/RGCSB1/RAINGAUGE"
+sender="$RGIDS"
+
+# data folder
+datafolder="/rgdata"
+
+# httpreq format 1=asp 2=php
+httpreqf=2
+
+# logger NID
+loggernid=1
+
+# internal logger id
+intloggerid=24
+
+EOF
+	
+}
+
+makegprs() {
+	echo "Writing $gprsfile"
+
+cat > $gprsfile << EOF
+# ----------------------------------------
+# Rain Gauge gprs setting
+# ----------------------------------------
+
+#gprsprovider="celcomGPRS"
+${ISCELC2}gprsprovider="celcomGPRSpost"
+${ISCELC}gprsprovider="celcomGPRS3g"
+${ISDIGI}gprsprovider="digiGPRS"
+${ISMAXIS}gprsprovider="maxisGPRS"
+
+EOF
+	
+}
+
+makepeers() {
+	echo "Writing $peerfile"
+
+cat > $peerfile << EOF
+pty "pptp ${RGIDLow}.pptp.persiasys.com --nolaunchpppd"
+9600
+nomppe
+nomppe-40
+nomppe-128
+nomppe-stateful
+noccp
+nodeflate
+novj
+novjccomp
+noaccomp
+nopcomp
+lock
+auth
+require-mschap-v2
+#deflate 14
+#name raingauge10036
+name $pptpuser
+lcp-echo-interval 0
+#lcp-echo-failure 20
+remotename ${RGIDLow}.pptp.persiasys.com
+#require-mppe-128
+file /etc/ppp/options.pptp
+ipparam pptp-persiasys
+maxfail 20
+
+EOF
+	
+}
+
+makechap() {
+	echo "Writing $chapsecfile"
+
+cat > $chapsecfile << EOF
+# Secrets for authentication using CHAP
+# client		server		secret		IP addresses
+$pptpuser	${RGIDLow}.pptp.persiasys.com	xxxxxxxx	*
+guest	*	*	*
+
+EOF
+
+chmod 600 $chapsecfile
+
+}
+
+
+echo -e "Start the automation...\n"
+echo "rgdata ID: $RGIDS"
+echo -e "\nRaingauge server: $rghostv\n"
+echo -e "GPRS Provider: $provname\n"
+echo -e "PPTP User: $pptpuser\n"
+echo -e "PPTP Address: ${RGIDLow}.pptp.persiasys.com\n"
+echo "======="
+echo -e "\nrgdata config file: $rgdatafile"
+echo "GPRS config file: $gprsfile"
+echo "PPTP PEERS file: $peerfile"
+echo -e "PPTP CHAP  file: $chapsecfile\n"
+echo -n "Are you sure to write these data to these files? (y/n) : "
+read -e YES
+
+case $YES in 
+ 	y) makergdata
+ 	makegprs
+ 	makepeers
+ 	makechap
+ 	
+	;;
+	*)
+	echo "Process Cancelled"
+	;;
+esac
+
+writetempconf
