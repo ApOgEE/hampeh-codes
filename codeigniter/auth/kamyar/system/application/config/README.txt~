@@ -1,0 +1,3 @@
+in autoload.php, add 'database'
+
+in routes.php, change default to 'blog'
